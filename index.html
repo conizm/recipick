@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Recipick</title>
     
-    <!-- ==================== アイコン・PWA設定 ==================== -->
+   <!-- ==================== アイコン・PWA設定 ==================== -->
     <link rel="icon" type="image/svg+xml" href="recipick_logo_favi.png>">
     <link rel="apple-touch-icon" href="recipick_logo_favi.png">
     <meta name="apple-mobile-web-app-title" content="recipick_logo_favi.png">
@@ -145,6 +145,31 @@
                     <p class="text-xs text-gray-400 mt-6 leading-relaxed font-light">
                         APIキー未設定時は、サイトの構造データから即座に抽出します（高速・無料）。<br>
                         読み取れないサイトがある場合は、ご自身のAPIキーを入力することで、AIが柔軟に抽出できるようになります。
+                    </p>
+                </div>
+
+                <div class="bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                    <label class="flex items-center gap-2 text-sm text-gray-600 mb-4 font-light tracking-wide">
+                        <i data-lucide="database" class="w-4 h-4"></i>
+                        データ管理
+                    </label>
+                    
+                    <div class="flex flex-col gap-3">
+                        <button id="export-btn" class="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-light text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                            <span>レシピをバックアップ</span>
+                        </button>
+                        
+                        <label for="import-input" class="w-full py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-light text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] cursor-pointer">
+                            <i data-lucide="upload" class="w-4 h-4"></i>
+                            <span>バックアップを復元</span>
+                        </label>
+                        <input type="file" id="import-input" accept=".json" class="hidden">
+                    </div>
+
+                    <p class="text-xs text-gray-400 mt-6 leading-relaxed font-light">
+                        機種変更の際などに、レシピデータをファイルとして保存・復元できます。<br>
+                        ※復元すると現在のレシピに統合されます。
                     </p>
                 </div>
 
@@ -738,6 +763,81 @@
             if (e.key === 'Enter') {
                 document.getElementById('extract-btn').click();
             }
+        });
+
+        // データ管理（エクスポート）
+        document.getElementById('export-btn').addEventListener('click', () => {
+            if (state.recipes.length === 0) {
+                showToast('バックアップするレシピがありません', true);
+                return;
+            }
+            
+            const dataStr = JSON.stringify(state.recipes, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            
+            const date = new Date();
+            const dateString = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+            a.download = `recipick_backup_${dateString}.json`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showToast('バックアップをダウンロードしました');
+        });
+
+        // データ管理（インポート）
+        document.getElementById('import-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (!Array.isArray(importedData)) {
+                        throw new Error("フォーマットが違います");
+                    }
+                    
+                    const isValid = importedData.every(item => item.title && item.ingredients && item.instructions);
+                    if (!isValid) {
+                        throw new Error("レシピデータが正しくありません");
+                    }
+
+                    const existingTitles = new Set(state.recipes.map(r => r.title));
+                    let addedCount = 0;
+                    
+                    importedData.forEach(recipe => {
+                        if (!existingTitles.has(recipe.title)) {
+                            state.recipes.push(recipe);
+                            addedCount++;
+                        }
+                    });
+
+                    if (addedCount > 0) {
+                        saveState();
+                        showToast(`${addedCount}件のレシピを復元しました`);
+                        if (state.view === 'home') {
+                            renderHome();
+                        }
+                    } else {
+                        showToast('新しいレシピはありませんでした');
+                    }
+                    
+                    e.target.value = '';
+
+                } catch (error) {
+                    console.error(error);
+                    showToast('ファイルの読み込みに失敗しました', true);
+                    e.target.value = '';
+                }
+            };
+            reader.readAsText(file);
         });
 
         renderHome();
