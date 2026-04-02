@@ -59,7 +59,7 @@
             transform: translateY(0);
         }
 
-        /* カスタムスクロールバーを非表示（よりアプリらしく） */
+        /* カスタムスクロールバーを非表示 */
         ::-webkit-scrollbar {
             display: none;
         }
@@ -69,7 +69,7 @@
         }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden antialiased">
+<body class="flex flex-col h-screen overflow-hidden antialiased relative">
     
     <!-- メインコンテンツエリア -->
     <main class="flex-1 overflow-y-auto pb-24 relative" id="app-container">
@@ -110,10 +110,15 @@
 
         <!-- ==================== 詳細画面（レシピ表示） ==================== -->
         <div id="view-detail" class="view-transition hidden-view px-6 py-8 min-h-full bg-white z-10 max-w-2xl mx-auto">
-            <button id="back-btn" class="mb-8 text-gray-400 hover:text-gray-900 transition-colors flex items-center gap-2">
-                <i data-lucide="arrow-left" class="w-5 h-5"></i>
-                <span class="text-sm tracking-wider font-light">戻る</span>
-            </button>
+            <div class="flex justify-between items-center mb-8">
+                <button id="back-btn" class="text-gray-400 hover:text-gray-900 transition-colors flex items-center gap-2">
+                    <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    <span class="text-sm tracking-wider font-light">戻る</span>
+                </button>
+                <button id="delete-btn" class="text-gray-300 hover:text-red-400 transition-colors flex items-center gap-2">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+            </div>
             
             <div id="recipe-detail-content" class="pb-10">
                 <!-- Javascriptで詳細コンテンツを生成 -->
@@ -150,6 +155,19 @@
         </div>
     </main>
 
+    <!-- ==================== 削除確認モーダル ==================== -->
+    <div id="delete-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div class="absolute inset-0 bg-black/10 backdrop-blur-sm" id="delete-modal-overlay"></div>
+        <div class="bg-white rounded-3xl p-8 max-w-[300px] w-full mx-4 shadow-xl transform scale-95 transition-transform duration-300 relative z-10" id="delete-modal-content">
+            <h3 class="text-lg font-light text-center mb-3 text-gray-900">削除しますか？</h3>
+            <p class="text-xs text-gray-400 text-center mb-8 font-light tracking-wide">この操作は取り消せません</p>
+            <div class="flex gap-3">
+                <button id="cancel-delete-btn" class="flex-1 py-3 bg-gray-50 text-gray-500 rounded-2xl font-light text-sm hover:bg-gray-100 transition-colors">キャンセル</button>
+                <button id="confirm-delete-btn" class="flex-1 py-3 bg-red-50 text-red-500 rounded-2xl font-light text-sm hover:bg-red-100 transition-colors">削除</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== ボトムナビゲーション ==================== -->
     <nav class="fixed bottom-0 left-0 w-full bg-white/80 backdrop-blur-xl border-t border-gray-100 pb-safe z-50">
         <div class="flex justify-around items-center pt-2 max-w-2xl mx-auto">
@@ -176,7 +194,7 @@
             view: 'home',
             recipes: JSON.parse(localStorage.getItem('recipick_recipes') || '[]'),
             currentRecipe: null,
-            userApiKey: localStorage.getItem('recipick_api_key') || '' // 設定画面で入力されたキー
+            userApiKey: localStorage.getItem('recipick_api_key') || ''
         };
 
         // ローカルストレージへの保存
@@ -191,14 +209,13 @@
         // UI操作関数
         // ==========================================
         
-        // トースト通知（ブラウザのalertの代わり）
+        // トースト通知
         function showToast(message, isError = false) {
             const toast = document.createElement('div');
-            toast.className = `fixed top-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full text-sm font-light z-[100] transition-all duration-500 shadow-sm transform -translate-y-4 opacity-0 ${isError ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-gray-900 text-white'}`;
+            toast.className = `fixed top-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full text-sm font-light z-[150] transition-all duration-500 shadow-sm transform -translate-y-4 opacity-0 ${isError ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-gray-900 text-white'}`;
             toast.innerText = message;
             document.body.appendChild(toast);
             
-            // アニメーション表示
             requestAnimationFrame(() => {
                 toast.classList.remove('-translate-y-4', 'opacity-0');
             });
@@ -211,18 +228,15 @@
 
         // 画面の切り替え
         function switchView(viewId) {
-            // 前のビューを非表示
             document.querySelectorAll('.view-transition').forEach(el => {
                 el.classList.remove('active-view');
                 el.classList.add('hidden-view');
             });
             
-            // 新しいビューを表示
             const nextView = document.getElementById(`view-${viewId}`);
             nextView.classList.remove('hidden-view');
             nextView.classList.add('active-view');
             
-            // ナビゲーションのハイライト更新
             if (viewId !== 'detail') {
                 document.querySelectorAll('.nav-btn').forEach(btn => {
                     if(btn.dataset.target === viewId) {
@@ -235,19 +249,38 @@
                 });
             }
 
-            // スクロール位置をリセット
             document.getElementById('app-container').scrollTop = 0;
             state.view = viewId;
 
-            // ビューごとの初期化
             if (viewId === 'home') renderHome();
+        }
+
+        // 削除モーダル操作
+        const deleteModal = document.getElementById('delete-modal');
+        const deleteModalContent = document.getElementById('delete-modal-content');
+
+        function showDeleteModal() {
+            deleteModal.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                deleteModal.classList.remove('opacity-0');
+                deleteModalContent.classList.remove('scale-95');
+                deleteModalContent.classList.add('scale-100');
+            });
+        }
+
+        function hideDeleteModal() {
+            deleteModal.classList.add('opacity-0');
+            deleteModalContent.classList.remove('scale-100');
+            deleteModalContent.classList.add('scale-95');
+            setTimeout(() => {
+                deleteModal.classList.add('hidden');
+            }, 300);
         }
 
         // ==========================================
         // レンダリング関数
         // ==========================================
 
-        // ホーム画面（レシピ一覧）の描画
         function renderHome() {
             const list = document.getElementById('recipe-list');
             
@@ -275,7 +308,6 @@
             
             lucide.createIcons();
             
-            // カードのクリックイベント
             document.querySelectorAll('.recipe-card').forEach(card => {
                 card.addEventListener('click', (e) => {
                     const idx = e.currentTarget.dataset.index;
@@ -286,11 +318,9 @@
             });
         }
 
-        // 詳細画面の描画
         function renderDetail(recipe) {
             const container = document.getElementById('recipe-detail-content');
             
-            // 材料リストの生成
             const ingredientsHtml = recipe.ingredients.map(ing => `
                 <div class="flex justify-between items-end py-3 border-b border-gray-100 border-dashed last:border-0 group">
                     <span class="text-gray-800 text-sm md:text-base">${ing.name}</span>
@@ -298,7 +328,6 @@
                 </div>
             `).join('');
 
-            // 手順リストの生成
             const instructionsHtml = recipe.instructions.map((inst, idx) => `
                 <div class="flex gap-5 mb-8 group">
                     <span class="text-gray-300 font-light text-xl md:text-2xl pt-0.5 select-none">${String(idx + 1).padStart(2, '0')}</span>
@@ -343,7 +372,6 @@
         // API 連携ロジック (Gemini)
         // ==========================================
         
-        // AIを使わずにHTMLからレシピ構造化データ(Schema.org)を抽出する関数
         function parseRecipeSchema(html) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
@@ -351,7 +379,6 @@
             
             let recipeNode = null;
             
-            // 複雑なJSON構造からRecipeタイプのデータを再帰的に探す
             const findRecipe = (obj) => {
                 if (!obj) return null;
                 if (Array.isArray(obj)) {
@@ -381,7 +408,6 @@
 
             if (!recipeNode) return null;
 
-            // フォーマット整形
             const title = recipeNode.name || doc.title || "名称不明のレシピ";
             
             let timeStr = "";
@@ -393,12 +419,10 @@
                 if (matchM) timeStr += `${matchM[1]}分`;
             }
 
-            // 材料の抽出
             const ingredients = [];
             if (Array.isArray(recipeNode.recipeIngredient)) {
                 recipeNode.recipeIngredient.forEach(ing => {
                     if (typeof ing === 'string') {
-                        // スペースで区切られている場合は材料名と分量に分ける
                         const parts = ing.trim().split(/\s+(.+)/);
                         if (parts.length > 1) {
                             ingredients.push({ name: parts[0], amount: parts[1] });
@@ -409,7 +433,6 @@
                 });
             }
 
-            // 手順の抽出
             const instructions = [];
             if (Array.isArray(recipeNode.recipeInstructions)) {
                 recipeNode.recipeInstructions.forEach(step => {
@@ -423,7 +446,6 @@
                  instructions.push(recipeNode.recipeInstructions.replace(/(<([^>]+)>)/gi, "").trim());
             }
 
-            // 材料と手順がどちらも空なら失敗とみなす
             if (ingredients.length === 0 || instructions.length === 0) {
                 return null;
             }
@@ -436,12 +458,9 @@
             };
         }
 
-        // URL先のWebページからHTMLを取得する関数（複数のCORS回避プロキシでリトライ）
         async function fetchHtmlWithProxies(targetUrl) {
             const proxies = [
-                // プロキシ1: allorigins (JSON形式で返却)
                 { url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, type: 'json' },
-                // プロキシ2: codetabs (直接テキストで返却)
                 { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, type: 'text' }
             ];
 
@@ -461,17 +480,15 @@
                     console.warn(`Proxy ${proxy.url} failed:`, error);
                 }
             }
-            return null; // 全てのプロキシが失敗した場合
+            return null;
         }
 
-        // リトライ付きのFetch関数 (Exponential backoff)
         async function fetchWithRetry(url, options, maxRetries = 5) {
             const delays = [1000, 2000, 4000, 8000, 16000];
             for (let i = 0; i < maxRetries; i++) {
                 try {
                     const response = await fetch(url, options);
                     if (!response.ok) {
-                        // エラーの詳しい原因を取得する
                         const errorData = await response.json().catch(() => ({}));
                         let errorMsg = errorData.error?.message || `HTTP error! status: ${response.status}`;
                         if (response.status === 401 || errorMsg.includes("API key not valid")) {
@@ -483,7 +500,6 @@
                     }
                     return await response.json();
                 } catch (e) {
-                    // 致命的なエラー（認証やモデル不在）は無駄な待機時間を省き、リトライせずにすぐ投げる
                     if (e.message.includes("APIキーが無効") || e.message.includes("認証に失敗") || e.message.includes("not found") || e.message.includes("not supported") || e.message.includes("クォータ")) {
                         throw e;
                     }
@@ -493,20 +509,14 @@
             }
         }
 
-        // Gemini APIを呼び出してレシピを抽出
         async function extractRecipeData(url) {
             const activeApiKey = state.userApiKey;
-
-            // まず対象URLのサイトのHTMLを取得する（複数のCORS回避プロキシを使用）
             const htmlContent = await fetchHtmlWithProxies(url);
 
             if (!htmlContent) {
                 throw new Error("サイトにアクセスできませんでした。URLをご確認いただくか、しばらく経ってから再度お試しください。");
             }
 
-            // ==========================================
-            // モード1: AIなし（スクレイピング抽出）
-            // ==========================================
             if (!activeApiKey) {
                 const recipeData = parseRecipeSchema(htmlContent);
                 if (recipeData) {
@@ -516,11 +526,6 @@
                 }
             }
 
-            // ==========================================
-            // モード2: AI抽出（Gemini API）
-            // ==========================================
-            
-            // HTMLから不要なタグを削除して純粋なテキストにする
             const doc = new DOMParser().parseFromString(htmlContent, "text/html");
             doc.querySelectorAll('script, style, nav, footer, header, iframe').forEach(el => el.remove());
             const siteText = doc.body.innerText.replace(/\s+/g, ' ').trim().substring(0, 20000);
@@ -587,7 +592,6 @@
         // イベントリスナーの設定
         // ==========================================
 
-        // ナビゲーションボタン
         document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const target = e.currentTarget.dataset.target;
@@ -597,12 +601,33 @@
             });
         });
 
-        // 詳細画面からの戻るボタン
         document.getElementById('back-btn').addEventListener('click', () => {
             switchView('home');
         });
 
-        // 設定画面のAPIキー入力監視と初期値設定
+        // 削除機能のイベントリスナー
+        document.getElementById('delete-btn').addEventListener('click', showDeleteModal);
+        document.getElementById('cancel-delete-btn').addEventListener('click', hideDeleteModal);
+        document.getElementById('delete-modal-overlay').addEventListener('click', hideDeleteModal);
+        
+        document.getElementById('confirm-delete-btn').addEventListener('click', () => {
+            if (state.currentRecipe) {
+                const index = state.recipes.findIndex(r => r === state.currentRecipe);
+                if (index > -1) {
+                    state.recipes.splice(index, 1);
+                    saveState();
+                    hideDeleteModal();
+                    
+                    // アニメーションが完了するのを少し待ってからホームに戻る
+                    setTimeout(() => {
+                        switchView('home');
+                        showToast('レシピを削除しました');
+                        state.currentRecipe = null;
+                    }, 200);
+                }
+            }
+        });
+
         const apiKeyInput = document.getElementById('api-key-input');
         apiKeyInput.value = state.userApiKey;
         apiKeyInput.addEventListener('input', (e) => {
@@ -610,7 +635,6 @@
             localStorage.setItem('recipick_api_key', state.userApiKey);
         });
 
-        // APIキーの接続テスト処理
         document.getElementById('test-api-btn').addEventListener('click', async () => {
             const apiKey = state.userApiKey;
             if (!apiKey) {
@@ -627,7 +651,6 @@
                 const modelName = "gemini-3-flash-preview";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
                 
-                // 簡単な挨拶文を送って反応を見る
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -659,7 +682,6 @@
             }
         });
 
-        // 抽出ボタンの処理
         document.getElementById('extract-btn').addEventListener('click', async () => {
             const inputEl = document.getElementById('url-input');
             const url = inputEl.value.trim();
@@ -669,7 +691,6 @@
                 return;
             }
 
-            // 簡単なURLバリデーション
             try {
                 new URL(url);
             } catch (_) {
@@ -680,25 +701,20 @@
             const btn = document.getElementById('extract-btn');
             const loading = document.getElementById('loading-indicator');
 
-            // ローディングUIに切り替え
             btn.classList.add('hidden');
             btn.classList.remove('flex');
             loading.classList.remove('hidden');
-            loading.classList.add('flex'); // flexを追加して中央揃えを有効化
-            // 少し遅延させてopacityを上げる(トランジション用)
+            loading.classList.add('flex');
             setTimeout(() => loading.classList.remove('opacity-0'), 10);
 
             try {
                 const recipeData = await extractRecipeData(url);
                 
-                // データを保存（メモリ上とローカルストレージ）し、先頭に追加
                 state.recipes.unshift(recipeData);
                 saveState();
                 
-                // 入力欄をクリア
                 inputEl.value = '';
                 
-                // 成功したら詳細画面へ
                 state.currentRecipe = recipeData;
                 renderDetail(recipeData);
                 switchView('detail');
@@ -706,10 +722,8 @@
 
             } catch (error) {
                 console.error(error);
-                // エラーの詳細を画面下部（トースト）に表示
                 showToast(`エラー: ${error.message}`, true);
             } finally {
-                // UIを元に戻す
                 loading.classList.add('opacity-0');
                 setTimeout(() => {
                     loading.classList.add('hidden');
@@ -720,14 +734,12 @@
             }
         });
 
-        // エンターキーでの抽出実行
         document.getElementById('url-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 document.getElementById('extract-btn').click();
             }
         });
 
-        // 初期表示
         renderHome();
 
     </script>
